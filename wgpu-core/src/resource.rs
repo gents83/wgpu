@@ -866,6 +866,7 @@ pub struct TextureView<A: HalApi> {
 impl<A: HalApi> Drop for TextureView<A> {
     fn drop(&mut self) {
         log::info!("Destroying TextureView {:?}", self.info.label());
+        println!("TextureView {:?} is destroyed", self.info.id());
         if let Some(raw) = self.raw.take() {
             unsafe {
                 use hal::Device;

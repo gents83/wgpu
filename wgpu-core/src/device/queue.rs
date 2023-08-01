@@ -1215,6 +1215,7 @@ impl<G: GlobalIdentityHandlerFactory> Global<G> {
                             for texture_view in cmd_buf_trackers.views.used_resources() {
                                 texture_view.info.use_at(submit_index);
                                 if texture_view.is_unique() {
+                                    println!("TextureView {:?} added as temp suspected", texture_view.info.label());
                                     device
                                         .temp_suspected
                                         .lock()

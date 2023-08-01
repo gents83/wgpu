@@ -823,6 +823,7 @@ pub struct BindGroup<A: HalApi> {
 
 impl<A: HalApi> Drop for BindGroup<A> {
     fn drop(&mut self) {
+        println!("BindGroup {:?} destroyed", self.info.label());
         log::info!("Destroying BindGroup {:?}", self.info.label());
         if let Some(raw) = self.raw.take() {
             unsafe {

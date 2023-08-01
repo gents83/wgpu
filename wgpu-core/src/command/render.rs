@@ -814,6 +814,7 @@ impl<'a, A: HalApi> RenderPassInfo<'a, A> {
         let mut depth_stencil = None;
 
         if let Some(at) = depth_stencil_attachment {
+            println!("TextureView {:?} Added at trackers as RenderPassDepthStencilAttachment", at.view);
             let view: &TextureView<A> = tracker
                 .views
                 .add_single(view_guard, at.view)
@@ -945,6 +946,7 @@ impl<'a, A: HalApi> RenderPassInfo<'a, A> {
                 colors.push(None);
                 continue;
             };
+            println!("TextureView {:?} Added at trackers as RenderPassColorAttachment", at.view);
             let color_view: &TextureView<A> = tracker
                 .views
                 .add_single(view_guard, at.view)
@@ -980,6 +982,7 @@ impl<'a, A: HalApi> RenderPassInfo<'a, A> {
 
             let mut hal_resolve_target = None;
             if let Some(resolve_target) = at.resolve_target {
+                println!("TextureView {:?} Added at trackers as ResolveTarget", resolve_target);
                 let resolve_view: &TextureView<A> = tracker
                     .views
                     .add_single(view_guard, resolve_target)

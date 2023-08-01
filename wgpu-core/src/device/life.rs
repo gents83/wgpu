@@ -528,6 +528,87 @@ impl<A: HalApi> LifetimeTracker<A> {
             }
         }
 
+        if !self.suspected_resources.compute_pipelines.is_empty() {
+            for compute_pipeline in self.suspected_resources.compute_pipelines.drain(..) {
+                let id = compute_pipeline.info.id();
+                let is_removed = {
+                    let mut trackers = trackers.lock();
+                    trackers.compute_pipelines.remove_abandoned(id)
+                };
+                if is_removed {
+                    log::info!("ComputePipeline {:?} is removed from registry", id);
+                    #[cfg(feature = "trace")]
+                    if let Some(ref mut t) = trace {
+                        t.add(trace::Action::DestroyComputePipeline(id.0));
+                    }
+
+                    if let Some(res) = hub.compute_pipelines.unregister(id.0) {
+                        let submit_index = res.info.submission_index();
+                        self.active
+                            .iter_mut()
+                            .find(|a| a.index == submit_index)
+                            .map_or(&mut self.free_resources, |a| &mut a.last_resources)
+                            .compute_pipes
+                            .push(res);
+                    }
+                }
+            }
+        }
+
+        if !self.suspected_resources.render_pipelines.is_empty() {
+            for render_pipeline in self.suspected_resources.render_pipelines.drain(..) {
+                let id = render_pipeline.info.id();
+                let is_removed = {
+                    let mut trackers = trackers.lock();
+                    trackers.render_pipelines.remove_abandoned(id)
+                };
+                if is_removed {
+                    log::info!("RenderPipeline {:?} is removed from registry", id);
+                    #[cfg(feature = "trace")]
+                    if let Some(ref mut t) = trace {
+                        t.add(trace::Action::DestroyRenderPipeline(id.0));
+                    }
+
+                    if let Some(res) = hub.render_pipelines.unregister(id.0) {
+                        let submit_index = res.info.submission_index();
+                        self.active
+                            .iter_mut()
+                            .find(|a| a.index == submit_index)
+                            .map_or(&mut self.free_resources, |a| &mut a.last_resources)
+                            .render_pipes
+                            .push(res);
+                    }
+                }
+            }
+        }
+
+        if !self.suspected_resources.pipeline_layouts.is_empty() {
+            let mut pipeline_layouts_locked = hub.pipeline_layouts.write();
+
+            for pipeline_layout in self.suspected_resources.pipeline_layouts.drain(..) {
+                let id = pipeline_layout.info.id();
+                //Note: this has to happen after all the suspected pipelines are destroyed
+                if pipeline_layouts_locked.is_unique(id.0).unwrap() {
+                    log::debug!("PipelineLayout {:?} will be removed from registry", id);
+                    #[cfg(feature = "trace")]
+                    if let Some(ref mut t) = trace {
+                        t.add(trace::Action::DestroyPipelineLayout(id.0));
+                    }
+
+                    if let Some(lay) = hub
+                        .pipeline_layouts
+                        .unregister_locked(id.0, &mut *pipeline_layouts_locked)
+                    {
+                        for bgl_id in &lay.bind_group_layout_ids {
+                            let bgl = hub.bind_group_layouts.get(bgl_id.0).unwrap();
+                            self.suspected_resources.bind_group_layouts.push(bgl);
+                        }
+                        self.free_resources.pipeline_layouts.push(lay);
+                    }
+                }
+            }
+        }
+
         if !self.suspected_resources.bind_groups.is_empty() {
             while let Some(resource) = self.suspected_resources.bind_groups.pop() {
                 let id = resource.info.id();
@@ -562,15 +643,47 @@ impl<A: HalApi> LifetimeTracker<A> {
             }
         }
 
+        if !self.suspected_resources.bind_group_layouts.is_empty() {
+            let mut bind_group_layouts_locked = hub.bind_group_layouts.write();
+
+            for bgl in self.suspected_resources.bind_group_layouts.drain(..) {
+                let id = bgl.as_info().id();
+                //Note: this has to happen after all the suspected pipelines are destroyed
+                //Note: nothing else can bump the refcount since the guard is locked exclusively
+                //Note: same BGL can appear multiple times in the list, but only the last
+                // encounter could drop the refcount to 0.
+                if bind_group_layouts_locked.is_unique(id.0).unwrap() {
+                    log::debug!("BindGroupLayout {:?} will be removed from registry", id);
+                    #[cfg(feature = "trace")]
+                    if let Some(ref mut t) = trace {
+                        t.add(trace::Action::DestroyBindGroupLayout(id.0));
+                    }
+                    if let Some(lay) = hub
+                        .bind_group_layouts
+                        .unregister_locked(id.0, &mut *bind_group_layouts_locked)
+                    {
+                        self.free_resources.bind_group_layouts.push(lay);
+                    }
+                }
+            }
+        }
+
         if !self.suspected_resources.texture_views.is_empty() {
-            let mut list = mem::take(&mut self.suspected_resources.texture_views);
-            for texture_view in list.drain(..) {
+            let mut list = Vec::new();
+            for texture_view in self.suspected_resources.texture_views.drain(..) {
                 let id = texture_view.info.id();
+                println!("TextureView {:?} checked from suspected", id);
                 let is_removed = {
                     let mut trackers = trackers.lock();
                     trackers.views.remove_abandoned(id)
                 };
-                if is_removed {
+                if !is_removed {
+                    let mut trackers = trackers.lock();
+                    println!("TextureView {:?} has still {} references", id, trackers.views.ref_count(id));
+                    list.push(texture_view);
+                }
+                else {
+                    println!("TextureView {:?} removed from registry", id);
                     log::info!("TextureView {:?} is removed from registry", id);
                     #[cfg(feature = "trace")]
                     if let Some(ref mut t) = trace {
@@ -687,112 +800,6 @@ impl<A: HalApi> LifetimeTracker<A> {
                             .map_or(&mut self.free_resources, |a| &mut a.last_resources)
                             .buffers
                             .push(res);
-                    }
-                }
-            }
-        }
-
-        if !self.suspected_resources.compute_pipelines.is_empty() {
-            for compute_pipeline in self.suspected_resources.compute_pipelines.drain(..) {
-                let id = compute_pipeline.info.id();
-                let is_removed = {
-                    let mut trackers = trackers.lock();
-                    trackers.compute_pipelines.remove_abandoned(id)
-                };
-                if is_removed {
-                    log::info!("ComputePipeline {:?} is removed from registry", id);
-                    #[cfg(feature = "trace")]
-                    if let Some(ref mut t) = trace {
-                        t.add(trace::Action::DestroyComputePipeline(id.0));
-                    }
-
-                    if let Some(res) = hub.compute_pipelines.unregister(id.0) {
-                        let submit_index = res.info.submission_index();
-                        self.active
-                            .iter_mut()
-                            .find(|a| a.index == submit_index)
-                            .map_or(&mut self.free_resources, |a| &mut a.last_resources)
-                            .compute_pipes
-                            .push(res);
-                    }
-                }
-            }
-        }
-
-        if !self.suspected_resources.render_pipelines.is_empty() {
-            for render_pipeline in self.suspected_resources.render_pipelines.drain(..) {
-                let id = render_pipeline.info.id();
-                let is_removed = {
-                    let mut trackers = trackers.lock();
-                    trackers.render_pipelines.remove_abandoned(id)
-                };
-                if is_removed {
-                    log::info!("RenderPipeline {:?} is removed from registry", id);
-                    #[cfg(feature = "trace")]
-                    if let Some(ref mut t) = trace {
-                        t.add(trace::Action::DestroyRenderPipeline(id.0));
-                    }
-
-                    if let Some(res) = hub.render_pipelines.unregister(id.0) {
-                        let submit_index = res.info.submission_index();
-                        self.active
-                            .iter_mut()
-                            .find(|a| a.index == submit_index)
-                            .map_or(&mut self.free_resources, |a| &mut a.last_resources)
-                            .render_pipes
-                            .push(res);
-                    }
-                }
-            }
-        }
-
-        if !self.suspected_resources.pipeline_layouts.is_empty() {
-            let mut pipeline_layouts_locked = hub.pipeline_layouts.write();
-
-            for pipeline_layout in self.suspected_resources.pipeline_layouts.drain(..) {
-                let id = pipeline_layout.info.id();
-                //Note: this has to happen after all the suspected pipelines are destroyed
-                if pipeline_layouts_locked.is_unique(id.0).unwrap() {
-                    log::debug!("PipelineLayout {:?} will be removed from registry", id);
-                    #[cfg(feature = "trace")]
-                    if let Some(ref mut t) = trace {
-                        t.add(trace::Action::DestroyPipelineLayout(id.0));
-                    }
-
-                    if let Some(lay) = hub
-                        .pipeline_layouts
-                        .unregister_locked(id.0, &mut *pipeline_layouts_locked)
-                    {
-                        for bgl_id in &lay.bind_group_layout_ids {
-                            let bgl = hub.bind_group_layouts.get(bgl_id.0).unwrap();
-                            self.suspected_resources.bind_group_layouts.push(bgl);
-                        }
-                        self.free_resources.pipeline_layouts.push(lay);
-                    }
-                }
-            }
-        }
-
-        if !self.suspected_resources.bind_group_layouts.is_empty() {
-            let mut bind_group_layouts_locked = hub.bind_group_layouts.write();
-
-            for bgl in self.suspected_resources.bind_group_layouts.drain(..) {
-                let id = bgl.as_info().id();
-                //Note: this has to happen after all the suspected pipelines are destroyed
-                //Note: nothing else can bump the refcount since the guard is locked exclusively
-                //Note: same BGL can appear multiple times in the list, but only the last
-                // encounter could drop the refcount to 0.
-                if bind_group_layouts_locked.is_unique(id.0).unwrap() {
-                    log::debug!("BindGroupLayout {:?} will be removed from registry", id);
-                    #[cfg(feature = "trace")]
-                    if let Some(ref mut t) = trace {
-                        t.add(trace::Action::DestroyBindGroupLayout(id.0));
-                    }
-                    if let Some(lay) = hub
-                        .bind_group_layouts
-                        .unregister_locked(id.0, &mut *bind_group_layouts_locked)
-                    {
-                        self.free_resources.bind_group_layouts.push(lay);
                     }
                 }
             }

@@ -198,4 +198,23 @@ impl<A: HalApi, Id: TypedId, T: Resource<Id>> StatelessTracker<A, Id, T> {
 
         false
     }
+    
+    pub fn ref_count(&mut self, id: Valid<Id>) -> usize {
+        let index = id.0.unzip().0 as usize;
+
+        if index > self.metadata.size() {
+            return 0;
+        }
+
+        self.tracker_assert_in_bounds(index);
+
+        unsafe {
+            if self.metadata.contains_unchecked(index) {
+                let existing_ref_count = self.metadata.get_ref_count_unchecked(index);
+                return existing_ref_count;
+            }
+        }
+
+        0
+    }
 }

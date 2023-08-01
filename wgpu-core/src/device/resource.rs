@@ -1914,6 +1914,7 @@ impl<A: HalApi> Device<A> {
                     (res_index, num_bindings)
                 }
                 Br::TextureView(id) => {
+                    println!("TextureView {:?} added as Binding Resource", id);
                     let view = used
                         .views
                         .add_single(&*texture_view_guard, id)
@@ -1945,6 +1946,7 @@ impl<A: HalApi> Device<A> {
 
                     let res_index = hal_textures.len();
                     for &id in bindings_array.iter() {
+                        println!("TextureView {:?} added as Binding Array Resource", id);
                         let view = used
                             .views
                             .add_single(&*texture_view_guard, id)
@@ -2315,6 +2317,7 @@ impl<A: HalApi> Device<A> {
                 }
                 None => {
                     let bgl = self.create_bind_group_layout(None, map)?;
+                    println!("BindGroup {:?} created\replaced", bgl_id);
                     bgl_guard.force_replace(*bgl_id, bgl);
                 }
             };

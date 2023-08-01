@@ -892,6 +892,7 @@ impl<G: GlobalIdentityHandlerFactory> Global<G> {
             };
             let (id, resource) = fid.assign(view);
             log::info!("Created TextureView {:?}", id);
+            println!("TextureView {:?} created with name {:?}", id, desc.label.as_ref().unwrap_or(&Cow::Borrowed("")));
             device.trackers.lock().views.insert_single(id, resource);
             return (id.0, None);
         };
@@ -911,6 +912,7 @@ impl<G: GlobalIdentityHandlerFactory> Global<G> {
     ) -> Result<(), resource::TextureViewDestroyError> {
         profiling::scope!("TextureView::drop");
         log::debug!("TextureView {:?} is asked to be dropped", texture_view_id);
+        println!("TextureView {:?} is asked to be dropped", texture_view_id);
 
         let hub = A::hub(self);
 
@@ -1218,6 +1220,7 @@ impl<G: GlobalIdentityHandlerFactory> Global<G> {
                 Err(e) => break e,
             };
             let (id, resource) = fid.assign(bind_group);
+            println!("BindGroup {:?} created", id);
             log::info!("Created BindGroup {:?}", id,);
 
             device
@@ -1238,6 +1241,7 @@ impl<G: GlobalIdentityHandlerFactory> Global<G> {
 
     pub fn bind_group_drop<A: HalApi>(&self, bind_group_id: id::BindGroupId) {
         profiling::scope!("BindGroup::drop");
+        println!("BindGroup {:?} is asked to be dropped", bind_group_id);
         log::debug!("BindGroup {:?} is asked to be dropped", bind_group_id);
 
         let hub = A::hub(self);
